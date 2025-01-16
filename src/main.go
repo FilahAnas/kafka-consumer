@@ -3,30 +3,98 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
+	"strconv"
 	"time"
+
 	"github.com/segmentio/kafka-go"
 	"go-kafka-consumer/src/utils"
-	"strconv"
 )
 
 var (
-	topic         = os.Getenv("TOPIC")
-	brokerAddress = os.Getenv("BROKER_ADDRESS")
-	groupID       = os.Getenv("GROUP_ID")
-	gcsBucket     = os.Getenv("GCS_BUCKET")
-	bqDataset     = os.Getenv("BQ_DATASET")
-	bqTable       = os.Getenv("BQ_TABLE")
-	batchSize, err      = strconv.Atoi(os.Getenv("BATCH_SIZE"))
-	projectID       = os.Getenv("PROJECT_ID")
+	topic         string
+	brokerAddress string
+	groupID       string
+	gcsBucket     string
+	bqDataset     string
+	bqTable       string
+	batchSize     int
+	projectID     string
 )
+
+func loadEnvVars() error {
+	var err error
+	topic = os.Getenv("TOPIC")
+	brokerAddress = os.Getenv("BROKER_ADDRESS")
+	groupID = os.Getenv("GROUP_ID")
+	gcsBucket = os.Getenv("GCS_BUCKET")
+	bqDataset = os.Getenv("BQ_DATASET")
+	bqTable = os.Getenv("BQ_TABLE")
+	projectID = os.Getenv("PROJECT_ID")
+
+	if topic == "" || brokerAddress == "" || groupID == "" || gcsBucket == "" || bqDataset == "" || bqTable == "" || projectID == "" {
+		return fmt.Errorf("missing one or more environment variables")
+	}
+
+	batchSize, err = strconv.Atoi(os.Getenv("BATCH_SIZE"))
+	if err != nil || batchSize <= 0 {
+		return fmt.Errorf("BATCH_SIZE must be a valid integer greater than 0: %v", err)
+	}
+
+	return nil
+}
+
+
+
+func initKafkaReader() *kafka.Reader {
+	return kafka.NewReader(kafka.ReaderConfig{
+		Brokers:     []string{brokerAddress},
+		Topic:       topic,
+		GroupID:     groupID,
+		MinBytes:    10e3,  // 10KB
+		MaxBytes:    10e6,  // 10MB
+		StartOffset: kafka.LastOffset,
+	})
+}
+
+
+func processBatch() {
+	log.Println("Processing batch to BigQuery...")
+	if err := utils.ProcessBatchToBigQuery(projectID, gcsBucket, bqDataset, bqTable); err != nil {
+		log.Printf("Failed to process batch to BigQuery: %v", err)
+	}
+}
+
+func processMessage(reader *kafka.Reader) error {
+	message, err := reader.ReadMessage(context.Background())
+	log.Println("Reading message...")
+	if err != nil {
+		return fmt.Errorf("error reading message: %w", err)
+	}
+
+	if len(message.Value) > 0 {
+		log.Println("Streaming message to GCS...")
+		if err := utils.StreamMessageToGCS(gcsBucket, message); err != nil {
+			return fmt.Errorf("failed to stream message to GCS: %w", err)
+		}
+	} else {
+		log.Println("Empty message received, skipping...")
+	}
+
+	return nil
+}
+
+
+
 func main() {
-	// step 1: Get the Kafka reader
-	reader := initKafkaReader(brokerAddress, topic, groupID)
+	if err := loadEnvVars(); err != nil {
+		log.Fatalf("Configuration error: %v", err)
+	}
+
+	reader := initKafkaReader()
 	defer reader.Close()
 
-	// step 2: Read messages from Kafka and stream to GCS
-	fmt.Println("Reading Kafka messages ...")
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
@@ -36,49 +104,13 @@ func main() {
 		case <-ticker.C:
 			if i >= batchSize {
 				processBatch()
+				i = 0
 			}
 		default:
-			processMessage(reader)
-			i++
-
+			if err := processMessage(reader); err != nil {
+				log.Printf("Error processing message: %v", err)
+			} else {
+				i++
+			}
 		}
-	}
-}
-
-func processBatch() {
-	fmt.Println("Processing batch to BigQuery")
-	if err := utils.ProcessBatchToBigQuery(projectID, gcsBucket, bqDataset, bqTable); err != nil {
-		fmt.Printf("Failed to Batch messages to BQ: %v\n", err)
-	}
-}
-
-func processMessage(reader *kafka.Reader) {
-	message := getMessage(reader)
-	if len(message.Value) > 0 {
-		fmt.Println("Streaming messages to GCS...")
-		if err := utils.StreamMessageToGCS(gcsBucket, message); err != nil {
-			fmt.Printf("Failed to stream message to GCS: %v\n", err)
-		}
-	} else {
-		fmt.Println("Received empty message, skipping...")
-	}
-}
-
-func initKafkaReader(brokerAddress, topic, groupID string) *kafka.Reader {
-	return kafka.NewReader(kafka.ReaderConfig{
-		Brokers:     []string{brokerAddress},
-		Topic:       topic,
-		GroupID:     groupID,
-		MinBytes:    10e3,
-		MaxBytes:    10e6,
-		StartOffset: kafka.LastOffset,
-	})
-}
-
-func getMessage(reader *kafka.Reader) kafka.Message {
-	m, err := reader.ReadMessage(context.Background())
-	if err != nil {
-		fmt.Printf("Error while reading message: %v\n", err)
-	}
-	return m
-}
+	}}
