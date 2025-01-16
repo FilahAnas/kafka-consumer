@@ -7,6 +7,7 @@ import (
 	"time"
 	"github.com/segmentio/kafka-go"
 	"go-kafka-consumer/src/utils"
+	"strconv"
 )
 
 var (
@@ -16,8 +17,9 @@ var (
 	gcsBucket     = os.Getenv("GCS_BUCKET")
 	bqDataset     = os.Getenv("BQ_DATASET")
 	bqTable       = os.Getenv("BQ_TABLE")
+	batchSize, err      = strconv.Atoi(os.Getenv("BATCH_SIZE"))
+	projectID       = os.Getenv("PROJECT_ID")
 )
-
 func main() {
 	// step 1: Get the Kafka reader
 	reader := initKafkaReader(brokerAddress, topic, groupID)
@@ -28,18 +30,37 @@ func main() {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
+	i := 0
 	for {
 		select {
 		case <-ticker.C:
-			fmt.Println("Processing batch to BigQuery")
-			// processBatchToBigQuery()
-		default:
-			message := getMessage(reader)
-			fmt.Println("Steaming messages to GCS...")
-			if err := utils.StreamMessageToGCS(gcsBucket, message); err != nil {
-				fmt.Printf("Failed to stream message to GCS: %v\n", err)
+			if i >= batchSize {
+				processBatch()
 			}
+		default:
+			processMessage(reader)
+			i++
+
 		}
+	}
+}
+
+func processBatch() {
+	fmt.Println("Processing batch to BigQuery")
+	if err := utils.ProcessBatchToBigQuery(projectID, gcsBucket, bqDataset, bqTable); err != nil {
+		fmt.Printf("Failed to Batch messages to BQ: %v\n", err)
+	}
+}
+
+func processMessage(reader *kafka.Reader) {
+	message := getMessage(reader)
+	if len(message.Value) > 0 {
+		fmt.Println("Streaming messages to GCS...")
+		if err := utils.StreamMessageToGCS(gcsBucket, message); err != nil {
+			fmt.Printf("Failed to stream message to GCS: %v\n", err)
+		}
+	} else {
+		fmt.Println("Received empty message, skipping...")
 	}
 }
 
