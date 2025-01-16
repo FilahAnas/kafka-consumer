@@ -10,10 +10,11 @@ import (
     "cloud.google.com/go/bigquery"
     "encoding/json"
     "google.golang.org/api/iterator"
+	"log"
 )
 
 
-func StreamMessageToGCS(gcsBucket string, message kafka.Message) error {
+func StreamMessageToGCS(gcsBucket string, appname string, message kafka.Message) error {
 	ctx := context.Background()
 	client, err := storage.NewClient(ctx)
 	if err != nil {
@@ -21,16 +22,24 @@ func StreamMessageToGCS(gcsBucket string, message kafka.Message) error {
 	}
 	defer client.Close()
 
-	bucket := client.Bucket(gcsBucket)
-	fileName := fmt.Sprintf("kafka_stream_%d.json", time.Now().UnixNano())
-	object := bucket.Object(fileName)
+    bucket := client.Bucket(gcsBucket)
+    fileName := fmt.Sprintf("%s/kafka_stream_%d.json", appname, time.Now().UnixNano())
+    object := bucket.Object(fileName)
 	writer := object.NewWriter(ctx)
 
-	jsonMessage, err := json.Marshal(map[string]interface{}{
-		"key":   string(message.Key),
-		"value": string(message.Value),
-		"time":  message.Time,
-	})
+    var msgData map[string]interface{}
+    if err := json.Unmarshal(message.Value, &msgData); err != nil {
+        return fmt.Errorf("failed to unmarshal message value: %v", err)
+    }
+	currentTime := time.Now().UTC()
+	formattedTime := currentTime.Format("2006-01-02 15:04:05 UTC")
+
+    jsonMessage, err := json.Marshal(map[string]interface{}{
+        "inserted_at": formattedTime,
+        "app_name": msgData["appname"],
+        "payload":    msgData["content"],
+        "extracted_at": msgData["datetime"],
+    })
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %v", err)
 	}
@@ -43,7 +52,7 @@ func StreamMessageToGCS(gcsBucket string, message kafka.Message) error {
 	if err := writer.Close(); err != nil {
 		return fmt.Errorf("failed to close GCS writer: %v", err)
 	}
-
+	log.Println("Message streamed to a GCS file successfully")
 	return nil
 }
 
@@ -73,11 +82,15 @@ func ProcessBatchToBigQuery(projectID, gcsBucket, datasetID, tableID string) err
         if err != nil {
             return fmt.Errorf("failed to list objects: %v", err)
         }
-
         gcsURI := fmt.Sprintf("gs://%s/%s", gcsBucket, attrs.Name)
         gcsRef := bigquery.NewGCSReference(gcsURI)
         gcsRef.SourceFormat = bigquery.JSON
-
+        gcsRef.Schema = bigquery.Schema{
+            {Name: "inserted_at", Type: bigquery.StringFieldType},
+            {Name: "app_name", Type: bigquery.StringFieldType},
+            {Name: "payload", Type: bigquery.StringFieldType},
+            {Name: "extracted_at", Type: bigquery.StringFieldType},
+        }
         loader := bqClient.Dataset(datasetID).Table(tableID).LoaderFrom(gcsRef)
         job, err := loader.Run(ctx)
         if err != nil {
@@ -91,12 +104,13 @@ func ProcessBatchToBigQuery(projectID, gcsBucket, datasetID, tableID string) err
         if err := status.Err(); err != nil {
             return fmt.Errorf("BigQuery job completed with error: %v", err)
         }
+		log.Printf("BigQuery job completed successfully for file: %s", attrs.Name)
 
         // Delete the file after processing
-        object := bucket.Object(attrs.Name)
-        if err := object.Delete(ctx); err != nil {
-            return fmt.Errorf("failed to delete GCS object: %v", err)
-        }
+        // object := bucket.Object(attrs.Name)
+        // if err := object.Delete(ctx); err != nil {
+        //     return fmt.Errorf("failed to delete GCS object: %v", err)
+        // }
     }
 
     return nil

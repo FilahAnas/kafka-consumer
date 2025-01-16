@@ -6,8 +6,8 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"sync"
 	"time"
-
 	"github.com/segmentio/kafka-go"
 	"go-kafka-consumer/src/utils"
 )
@@ -21,6 +21,12 @@ var (
 	bqTable       string
 	batchSize     int
 	projectID     string
+	appname 	 string
+)
+
+var (
+	mu          sync.Mutex
+	messageCount int
 )
 
 func loadEnvVars() error {
@@ -32,6 +38,7 @@ func loadEnvVars() error {
 	bqDataset = os.Getenv("BQ_DATASET")
 	bqTable = os.Getenv("BQ_TABLE")
 	projectID = os.Getenv("PROJECT_ID")
+	appname = os.Getenv("APP_NAME")
 
 	if topic == "" || brokerAddress == "" || groupID == "" || gcsBucket == "" || bqDataset == "" || bqTable == "" || projectID == "" {
 		return fmt.Errorf("missing one or more environment variables")
@@ -45,8 +52,6 @@ func loadEnvVars() error {
 	return nil
 }
 
-
-
 func initKafkaReader() *kafka.Reader {
 	return kafka.NewReader(kafka.ReaderConfig{
 		Brokers:     []string{brokerAddress},
@@ -58,24 +63,20 @@ func initKafkaReader() *kafka.Reader {
 	})
 }
 
-
 func processBatch() {
-	log.Println("Processing batch to BigQuery...")
 	if err := utils.ProcessBatchToBigQuery(projectID, gcsBucket, bqDataset, bqTable); err != nil {
 		log.Printf("Failed to process batch to BigQuery: %v", err)
 	}
 }
 
-func processMessage(reader *kafka.Reader) error {
+func processMessage(reader *kafka.Reader, appname string) error {
 	message, err := reader.ReadMessage(context.Background())
-	log.Println("Reading message...")
 	if err != nil {
 		return fmt.Errorf("error reading message: %w", err)
 	}
 
 	if len(message.Value) > 0 {
-		log.Println("Streaming message to GCS...")
-		if err := utils.StreamMessageToGCS(gcsBucket, message); err != nil {
+		if err := utils.StreamMessageToGCS(gcsBucket,appname, message); err != nil {
 			return fmt.Errorf("failed to stream message to GCS: %w", err)
 		}
 	} else {
@@ -85,8 +86,6 @@ func processMessage(reader *kafka.Reader) error {
 	return nil
 }
 
-
-
 func main() {
 	if err := loadEnvVars(); err != nil {
 		log.Fatalf("Configuration error: %v", err)
@@ -95,22 +94,30 @@ func main() {
 	reader := initKafkaReader()
 	defer reader.Close()
 
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
 
-	i := 0
 	for {
 		select {
 		case <-ticker.C:
-			if i >= batchSize {
+			mu.Lock()
+			if messageCount > 0 {
 				processBatch()
-				i = 0
+				messageCount = 0
 			}
+			mu.Unlock()
 		default:
-			if err := processMessage(reader); err != nil {
+			if err := processMessage(reader, appname); err != nil {
 				log.Printf("Error processing message: %v", err)
 			} else {
-				i++
+				mu.Lock()
+				messageCount++
+				if messageCount >= batchSize {
+					processBatch()
+					messageCount = 0
+				}
+				mu.Unlock()
 			}
 		}
-	}}
+	}
+}
