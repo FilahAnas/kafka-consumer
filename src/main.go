@@ -52,16 +52,6 @@ func loadEnvVars() error {
 	return nil
 }
 
-func initKafkaReader() *kafka.Reader {
-	return kafka.NewReader(kafka.ReaderConfig{
-		Brokers:     []string{brokerAddress},
-		Topic:       topic,
-		GroupID:     groupID,
-		MinBytes:    10e3,  // 10KB
-		MaxBytes:    10e6,  // 10MB
-		StartOffset: kafka.LastOffset,
-	})
-}
 
 func processBatch() {
 	if err := utils.ProcessBatchToBigQuery(projectID, gcsBucket, appname, bqDataset, bqTable); err != nil {
@@ -91,7 +81,7 @@ func main() {
 		log.Fatalf("Configuration error: %v", err)
 	}
 
-	reader := initKafkaReader()
+	reader := utils.InitKafkaReader(brokerAddress, topic, groupID)
 	defer reader.Close()
 
 	ticker := time.NewTicker(10 * time.Minute)
@@ -100,23 +90,25 @@ func main() {
 	for {
 		select {
 		case <-ticker.C:
-			mu.Lock()
 			if messageCount > 0 {
+				mu.Lock()
 				processBatch()
 				messageCount = 0
+				mu.Unlock()
+
 			}
-			mu.Unlock()
 		default:
 			if err := processMessage(reader, appname); err != nil {
 				log.Printf("Error processing message: %v", err)
 			} else {
 				messageCount++
-				mu.Lock()
 				if messageCount >= batchSize {
+					mu.Lock()
 					processBatch()
 					messageCount = 0
+					mu.Unlock()
 				}
-				mu.Unlock()
+				
 			}
 		}
 	}
