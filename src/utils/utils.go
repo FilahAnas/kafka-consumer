@@ -74,10 +74,10 @@ func ProcessBatchToBigQuery(projectID, gcsBucket, appname, datasetID, tableID st
     bucket := client.Bucket(gcsBucket)
     query := &storage.Query{Prefix: fmt.Sprintf("%s/kafka_stream_", appname)}
     it := bucket.Objects(ctx, query)
+    var gcsURIs []string
     for {
         attrs, err := it.Next()
         if err == iterator.Done {
-            fmt.Println("No more objects in bucket.")
             break
         }
 
@@ -86,31 +86,40 @@ func ProcessBatchToBigQuery(projectID, gcsBucket, appname, datasetID, tableID st
         }
 
         gcsURI := fmt.Sprintf("gs://%s/%s", gcsBucket, attrs.Name)
+        gcsURIs = append(gcsURIs, gcsURI)
+    }
 
-        gcsRef := bigquery.NewGCSReference(gcsURI)
-        gcsRef.SourceFormat = bigquery.JSON
-        gcsRef.Schema = bigquery.Schema{
-            {Name: "inserted_at", Type: bigquery.StringFieldType},
-            {Name: "app_name", Type: bigquery.StringFieldType},
-            {Name: "payload", Type: bigquery.StringFieldType},
-            {Name: "extracted_at", Type: bigquery.StringFieldType},
-        }
-        loader := bqClient.Dataset(datasetID).Table(tableID).LoaderFrom(gcsRef)
-        job, err := loader.Run(ctx)
-        if err != nil {
-            return fmt.Errorf("failed to create BigQuery job: %v", err)
-        }
 
-        status, err := job.Wait(ctx)
-        if err != nil {
-            return fmt.Errorf("failed to wait for BigQuery job: %v", err)
-        }
-        if err := status.Err(); err != nil {
-            return fmt.Errorf("BigQuery job completed with error: %v", err)
-        }
-		log.Printf("BigQuery job completed successfully for file: %s", attrs.Name)
+    if len(gcsURIs) == 0 {
+        return fmt.Errorf("no objects found in bucket with prefix: %s", query.Prefix)
+    }
 
-        object := bucket.Object(attrs.Name)
+    gcsRef := bigquery.NewGCSReference(gcsURIs...)
+    gcsRef.SourceFormat = bigquery.JSON
+    gcsRef.Schema = bigquery.Schema{
+        {Name: "inserted_at", Type: bigquery.StringFieldType},
+        {Name: "app_name", Type: bigquery.StringFieldType},
+        {Name: "payload", Type: bigquery.StringFieldType},
+        {Name: "extracted_at", Type: bigquery.StringFieldType},
+    }
+    loader := bqClient.Dataset(datasetID).Table(tableID).LoaderFrom(gcsRef)
+    job, err := loader.Run(ctx)
+    if err != nil {
+        return fmt.Errorf("failed to create BigQuery job: %v", err)
+    }
+
+    status, err := job.Wait(ctx)
+    if err != nil {
+        return fmt.Errorf("failed to wait for BigQuery job: %v", err)
+    }
+    if err := status.Err(); err != nil {
+        return fmt.Errorf("BigQuery job completed with error: %v", err)
+    }
+    log.Printf("BigQuery job completed successfully for files with prefix: %s", query.Prefix)
+
+    for _, gcsURI := range gcsURIs {
+        objectName := gcsURI[len(fmt.Sprintf("gs://%s/", gcsBucket)):]
+        object := bucket.Object(objectName)
         if err := object.Delete(ctx); err != nil {
             return fmt.Errorf("failed to delete GCS object: %v", err)
         }
