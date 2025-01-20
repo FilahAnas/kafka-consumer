@@ -64,7 +64,7 @@ func initKafkaReader() *kafka.Reader {
 }
 
 func processBatch() {
-	if err := utils.ProcessBatchToBigQuery(projectID, gcsBucket, bqDataset, bqTable); err != nil {
+	if err := utils.ProcessBatchToBigQuery(projectID, gcsBucket, appname, bqDataset, bqTable); err != nil {
 		log.Printf("Failed to process batch to BigQuery: %v", err)
 	}
 }
@@ -110,8 +110,8 @@ func main() {
 			if err := processMessage(reader, appname); err != nil {
 				log.Printf("Error processing message: %v", err)
 			} else {
-				mu.Lock()
 				messageCount++
+				mu.Lock()
 				if messageCount >= batchSize {
 					processBatch()
 					messageCount = 0

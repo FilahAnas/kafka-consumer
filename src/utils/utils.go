@@ -56,7 +56,8 @@ func StreamMessageToGCS(gcsBucket string, appname string, message kafka.Message)
 	return nil
 }
 
-func ProcessBatchToBigQuery(projectID, gcsBucket, datasetID, tableID string) error {
+func ProcessBatchToBigQuery(projectID, gcsBucket, appname, datasetID, tableID string) error {
+    log.Println(projectID, gcsBucket, appname, datasetID, tableID)
     ctx := context.Background()
     client, err := storage.NewClient(ctx)
     if err != nil {
@@ -71,18 +72,21 @@ func ProcessBatchToBigQuery(projectID, gcsBucket, datasetID, tableID string) err
     defer bqClient.Close()
 
     bucket := client.Bucket(gcsBucket)
-    query := &storage.Query{Prefix: "kafka_stream_"}
+    query := &storage.Query{Prefix: fmt.Sprintf("%s/kafka_stream_", appname)}
     it := bucket.Objects(ctx, query)
-
     for {
         attrs, err := it.Next()
         if err == iterator.Done {
+            fmt.Println("No more objects in bucket.")
             break
         }
+
         if err != nil {
             return fmt.Errorf("failed to list objects: %v", err)
         }
+
         gcsURI := fmt.Sprintf("gs://%s/%s", gcsBucket, attrs.Name)
+
         gcsRef := bigquery.NewGCSReference(gcsURI)
         gcsRef.SourceFormat = bigquery.JSON
         gcsRef.Schema = bigquery.Schema{
@@ -106,11 +110,10 @@ func ProcessBatchToBigQuery(projectID, gcsBucket, datasetID, tableID string) err
         }
 		log.Printf("BigQuery job completed successfully for file: %s", attrs.Name)
 
-        // Delete the file after processing
-        // object := bucket.Object(attrs.Name)
-        // if err := object.Delete(ctx); err != nil {
-        //     return fmt.Errorf("failed to delete GCS object: %v", err)
-        // }
+        object := bucket.Object(attrs.Name)
+        if err := object.Delete(ctx); err != nil {
+            return fmt.Errorf("failed to delete GCS object: %v", err)
+        }
     }
 
     return nil
