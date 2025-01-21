@@ -9,6 +9,7 @@ import (
     "cloud.google.com/go/bigquery"
     "encoding/json"
     "google.golang.org/api/iterator"
+
 )
 
 func InitKafkaReader(brokerAddress string, topic string, groupID string) *kafka.Reader {
@@ -19,6 +20,7 @@ func InitKafkaReader(brokerAddress string, topic string, groupID string) *kafka.
         MinBytes:    10e3,  // 10KB
         MaxBytes:    10e6,  // 10MB
         StartOffset: kafka.LastOffset,
+        MaxWait:     1 * time.Second,
     })
 }
 
@@ -65,7 +67,7 @@ func StreamMessageToGCS(gcsBucket string, appname string, message kafka.Message)
         Error("Failed to close GCS writer:", err)
         return fmt.Errorf("failed to close GCS writer: %v", err)
     }
-    Success("Message streamed to a GCS file successfully")
+    Success("[stream] - Message streamed to a GCS file successfully")
     return nil
 }
 
@@ -133,7 +135,7 @@ func ProcessBatchToBigQuery(projectID, gcsBucket, appname, datasetID, tableID st
         Error("BigQuery job completed with error:", err)
         return fmt.Errorf("BigQuery job completed with error: %v", err)
     }
-    Success("BigQuery job completed successfully for files with prefix:", query.Prefix)
+    Success("[Batch] - BigQuery job completed successfully for files with prefix:", query.Prefix)
 
     for _, gcsURI := range gcsURIs {
         objectName := gcsURI[len(fmt.Sprintf("gs://%s/", gcsBucket)):]
@@ -146,3 +148,4 @@ func ProcessBatchToBigQuery(projectID, gcsBucket, appname, datasetID, tableID st
 
     return nil
 }
+

@@ -36,3 +36,17 @@ func Error(v ...interface{}) {
 func Success(v ...interface{}) {
     SuccessLogger.Println(v...)
 }
+
+func Startup() {
+
+banner := `
+  ____ _____           ____ ___  _   _ ____  _   _ __  __ _____ ____  
+ |  _ \_   _|         / ___/ _ \| \ | / ___|| | | |  \/  | ____|  _ \ 
+ | | | || |   _____  | |  | | | |  \| \___ \| | | | |\/| |  _| | |_) |
+ | |_| || |  |_____| | |__| |_| | |\  |___) | |_| | |  | | |___|  _ < 
+ |____/ |_|           \____\___/|_| \_|____/ \___/|_|  |_|_____|_| \_\
+                                                                                                                                        
+`
+fmt.Println(Green + banner + Reset)
+InfoLogger.Println("Brevo application starting...")
+}

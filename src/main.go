@@ -6,10 +6,11 @@ import (
 	"log"
 	"os"
 	"strconv"
-	"sync"
 	"time"
 	"github.com/segmentio/kafka-go"
 	"go-kafka-consumer/src/utils"
+    "os/signal"
+    "syscall"
 )
 
 var (
@@ -21,13 +22,9 @@ var (
 	bqTable       string
 	batchSize     int
 	projectID     string
-	appname 	 string
+	appname       string
 )
 
-var (
-	mu          sync.Mutex
-	messageCount int
-)
 
 func loadEnvVars() error {
 	var err error
@@ -52,7 +49,6 @@ func loadEnvVars() error {
 	return nil
 }
 
-
 func processBatch() {
 	if err := utils.ProcessBatchToBigQuery(projectID, gcsBucket, appname, bqDataset, bqTable); err != nil {
 		log.Printf("Failed to process batch to BigQuery: %v", err)
@@ -60,23 +56,27 @@ func processBatch() {
 }
 
 func processMessage(reader *kafka.Reader, appname string) error {
-	message, err := reader.ReadMessage(context.Background())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	message, err := reader.ReadMessage(ctx)
 	if err != nil {
 		return fmt.Errorf("error reading message: %w", err)
 	}
 
 	if len(message.Value) > 0 {
-		if err := utils.StreamMessageToGCS(gcsBucket,appname, message); err != nil {
+		if err := utils.StreamMessageToGCS(gcsBucket, appname, message); err != nil {
 			return fmt.Errorf("failed to stream message to GCS: %w", err)
 		}
 	} else {
-		log.Println("Empty message received, skipping...")
+		utils.Warn("Empty message received, skipping...")
 	}
-
 	return nil
 }
 
 func main() {
+	utils.Startup()
+
 	if err := loadEnvVars(); err != nil {
 		log.Fatalf("Configuration error: %v", err)
 	}
@@ -84,31 +84,44 @@ func main() {
 	reader := utils.InitKafkaReader(brokerAddress, topic, groupID)
 	defer reader.Close()
 
-	ticker := time.NewTicker(10 * time.Minute)
-	defer ticker.Stop()
+	RunConsumer(processBatch, processMessage, reader, appname, batchSize, 10*time.Minute)
+}
+
+
+func RunConsumer(processBatch func(), processMessage func(*kafka.Reader, string) error, reader *kafka.Reader, appname string, batchSize int, timeout time.Duration) {
+    ticker := time.NewTicker(timeout)
+    defer ticker.Stop()
+    messageCount := 0
+
+    sigChan := make(chan os.Signal, 1)
+    signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	for {
 		select {
+
 		case <-ticker.C:
 			if messageCount > 0 {
-				mu.Lock()
 				processBatch()
 				messageCount = 0
-				mu.Unlock()
-
 			}
+
+		case sig := <-sigChan:
+			utils.Warn("Received signal: %s. Shutting down ...\n", sig)
+			if messageCount > 0 {
+				processBatch()
+			}
+			if err := reader.Close(); err != nil {
+				utils.Error("Failed to close Kafka reader: %v\n", err)
+			}
+			return
+
 		default:
-			if err := processMessage(reader, appname); err != nil {
-				log.Printf("Error processing message: %v", err)
-			} else {
+			if err := processMessage(reader, appname); err == nil {
 				messageCount++
-				if messageCount >= batchSize {
-					mu.Lock()
-					processBatch()
-					messageCount = 0
-					mu.Unlock()
-				}
-				
+			}
+			if messageCount >= batchSize {
+				processBatch()
+				messageCount = 0
 			}
 		}
 	}
