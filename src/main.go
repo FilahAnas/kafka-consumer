@@ -9,8 +9,7 @@ import (
 	"time"
 	"github.com/segmentio/kafka-go"
 	"go-kafka-consumer/src/utils"
-    "os/signal"
-    "syscall"
+	"github.com/DTSL/golang-libraries/kafkautils"
 )
 
 var (
@@ -23,22 +22,33 @@ var (
 	batchSize     int
 	projectID     string
 	appname       string
+	process       int
 )
-
 
 func loadEnvVars() error {
 	var err error
-	topic = os.Getenv("TOPIC")
-	brokerAddress = os.Getenv("BROKER_ADDRESS")
-	groupID = os.Getenv("GROUP_ID")
-	gcsBucket = os.Getenv("GCS_BUCKET")
-	bqDataset = os.Getenv("BQ_DATASET")
-	bqTable = os.Getenv("BQ_TABLE")
-	projectID = os.Getenv("PROJECT_ID")
-	appname = os.Getenv("APP_NAME")
+	envVars := map[string]*string{
+		"TOPIC":         &topic,
+		"BROKER_ADDRESS": &brokerAddress,
+		"GROUP_ID":      &groupID,
+		"GCS_BUCKET":    &gcsBucket,
+		"BQ_DATASET":    &bqDataset,
+		"BQ_TABLE":      &bqTable,
+		"PROJECT_ID":    &projectID,
+		"APP_NAME":      &appname,
+		
+	}
 
-	if topic == "" || brokerAddress == "" || groupID == "" || gcsBucket == "" || bqDataset == "" || bqTable == "" || projectID == "" {
-		return fmt.Errorf("missing one or more environment variables")
+	for key, value := range envVars {
+		*value = os.Getenv(key)
+		if *value == "" {
+			return fmt.Errorf("missing environment variable: %s", key)
+		}
+	}
+
+	process, err = strconv.Atoi(os.Getenv("PROCESS"))
+	if err != nil || process <= 0 {
+		return fmt.Errorf("PROCESS must be a valid integer greater than 0: %v", err)
 	}
 
 	batchSize, err = strconv.Atoi(os.Getenv("BATCH_SIZE"))
@@ -49,80 +59,48 @@ func loadEnvVars() error {
 	return nil
 }
 
-func processBatch() {
-	if err := utils.ProcessBatchToBigQuery(projectID, gcsBucket, appname, bqDataset, bqTable); err != nil {
-		log.Printf("Failed to process batch to BigQuery: %v", err)
-	}
-}
-
-func processMessage(reader *kafka.Reader, appname string) error {
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	message, err := reader.ReadMessage(ctx)
-	if err != nil {
-		return fmt.Errorf("error reading message: %w", err)
-	}
-
-	if len(message.Value) > 0 {
-		if err := utils.StreamMessageToGCS(gcsBucket, appname, message); err != nil {
-			return fmt.Errorf("failed to stream message to GCS: %w", err)
+func processMessage(cx context.Context, messages []kafka.Message) error {
+	var i int
+	for _, message := range messages {	
+		if len(message.Value) > 0 {
+			var err error
+			if i, err = utils.StreamMessageToGCS(gcsBucket, appname, message, i); err != nil {
+				fmt.Errorf("failed to stream message to GCS: %w", err)
+			}
+		} else {
+			utils.Warn("Empty message received, skipping...")
 		}
-	} else {
-		utils.Warn("Empty message received, skipping...")
 	}
+	utils.Success("Processed messages successfully:", i)
 	return nil
 }
 
 func main() {
 	utils.Startup()
+	ctx := context.Background()
 
 	if err := loadEnvVars(); err != nil {
 		log.Fatalf("Configuration error: %v", err)
 	}
 
-	reader := utils.InitKafkaReader(brokerAddress, topic, groupID)
-	defer reader.Close()
+	readerConfig := kafka.ReaderConfig{
+        Brokers:     []string{brokerAddress},
+        Topic:       topic,
+        GroupID:     groupID,
+    }
 
-	RunConsumer(processBatch, processMessage, reader, appname, batchSize, 10*time.Minute)
-}
 
-
-func RunConsumer(processBatch func(), processMessage func(*kafka.Reader, string) error, reader *kafka.Reader, appname string, batchSize int, timeout time.Duration) {
-    ticker := time.NewTicker(timeout)
-    defer ticker.Stop()
-    messageCount := 0
-
-    sigChan := make(chan os.Signal, 1)
-    signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	for {
-		select {
-
-		case <-ticker.C:
-			if messageCount > 0 {
-				processBatch()
-				messageCount = 0
-			}
-
-		case sig := <-sigChan:
-			utils.Warn("Received signal: %s. Shutting down ...\n", sig)
-			if messageCount > 0 {
-				processBatch()
-			}
-			if err := reader.Close(); err != nil {
-				utils.Error("Failed to close Kafka reader: %v\n", err)
-			}
-			return
-
-		default:
-			if err := processMessage(reader, appname); err == nil {
-				messageCount++
-			}
-			if messageCount >= batchSize {
-				processBatch()
-				messageCount = 0
-			}
-		}
+	ErrorHandler:= func(ctx context.Context, er error){
+		log.Fatalf("Error: %v", er)
 	}
+
+	kafkautils.RunBatchConsumers(
+		ctx, 
+		readerConfig, 
+		processMessage, 
+		2, 
+		batchSize, 
+		2 * time.Minute, 
+		ErrorHandler)
+
 }
