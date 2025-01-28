@@ -7,17 +7,13 @@ To run the application, use the following command:
 ### With docker
 ```sh
 docker build --build-arg GITHUB_TOKEN=<your_github_token> -t go-kafka-consumer .
-docker build --build-arg GITHUB_TOKEN=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 -t go-kafka-consumer .
 docker run -p 9092:9092 go-kafka-consumer 
 ```
-
 
 ### Without docker
 ```sh
 make run
 ```
-
-
 ## Testing Code Locally
 
 ### 1. Run Kafka
