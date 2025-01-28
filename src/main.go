@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"time"
+	"sync"
 	"github.com/segmentio/kafka-go"
 	"go-kafka-consumer/src/utils"
 	"github.com/DTSL/golang-libraries/kafkautils"
@@ -23,6 +24,7 @@ var (
 	projectID     string
 	appname       string
 	process       int
+	timeout       int
 )
 
 func loadEnvVars() error {
@@ -51,6 +53,11 @@ func loadEnvVars() error {
 		return fmt.Errorf("PROCESS must be a valid integer greater than 0: %v", err)
 	}
 
+	timeout, err = strconv.Atoi(os.Getenv("TIMEOUT"))
+	if err != nil || timeout <= 0 {
+		return fmt.Errorf("TIMEOUT must be a valid integer greater than 0: %v", err)
+	}	
+
 	batchSize, err = strconv.Atoi(os.Getenv("BATCH_SIZE"))
 	if err != nil || batchSize <= 0 {
 		return fmt.Errorf("BATCH_SIZE must be a valid integer greater than 0: %v", err)
@@ -59,19 +66,33 @@ func loadEnvVars() error {
 	return nil
 }
 
-func processMessage(cx context.Context, messages []kafka.Message) error {
-	var i int
-	for _, message := range messages {	
-		if len(message.Value) > 0 {
-			var err error
-			if i, err = utils.StreamMessageToGCS(gcsBucket, appname, message, i); err != nil {
-				fmt.Errorf("failed to stream message to GCS: %w", err)
+func processMessage(ctx context.Context, messages []kafka.Message) error {
+	var wg sync.WaitGroup
+	successCount := 0
+	errorCount := 0
+
+	for _, message := range messages {
+		wg.Add(1)
+		go func(msg kafka.Message) {
+			defer wg.Done()
+			if len(msg.Value) > 0 {
+				if err := utils.StreamMessageToGCS(gcsBucket, appname, msg); err != nil {
+					log.Printf("Failed to stream message to GCS: %v", err)
+					errorCount++
+				} else {
+					successCount++
+				}
+			} else {
+				utils.Warn("Empty message received, skipping...")
 			}
-		} else {
-			utils.Warn("Empty message received, skipping...")
-		}
+		}(message)
 	}
-	utils.Success("Processed messages successfully:", i)
+
+	wg.Wait()
+	utils.Info("Processed messages successfully:", successCount, "/", len(messages))
+	if errorCount > 0 {
+		log.Printf("Failed to process %d messages", errorCount)
+	}
 	return nil
 }
 
@@ -98,9 +119,9 @@ func main() {
 		ctx, 
 		readerConfig, 
 		processMessage, 
-		2, 
+		process, 
 		batchSize, 
-		2 * time.Minute, 
+		time.Duration(timeout) * time.Minute, 
 		ErrorHandler)
 
 }

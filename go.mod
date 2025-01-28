@@ -1,6 +1,6 @@
 module go-kafka-consumer
 
-go 1.23.3
+go 1.23
 
 require (
 	cel.dev/expr v0.16.1 // indirect
