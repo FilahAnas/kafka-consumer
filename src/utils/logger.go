@@ -1,45 +1,36 @@
 package utils
 
 import (
-    "fmt"
-    "log"
+    "github.com/sirupsen/logrus"
     "os"
+    "fmt"
 )
 
-const (
-    Reset  = "\033[0m"
-    Red    = "\033[31m"
-    Green  = "\033[32m"
-    Yellow = "\033[33m"
-    Blue   = "\033[34m"
-)
+var log = logrus.New()
 
-var (
-    InfoLogger  = log.New(os.Stdout, fmt.Sprintf("%s[INFO] %s", Blue, Reset), log.Ldate|log.Ltime|log.Lshortfile)
-    WarnLogger  = log.New(os.Stdout, fmt.Sprintf("%s[WARN] %s", Yellow, Reset), log.Ldate|log.Ltime|log.Lshortfile)
-    ErrorLogger = log.New(os.Stderr, fmt.Sprintf("%s[ERROR] %s", Red, Reset), log.Ldate|log.Ltime|log.Lshortfile)
-    SuccessLogger = log.New(os.Stdout, fmt.Sprintf("%s[SUCCESS] %s", Green, Reset), log.Ldate|log.Ltime|log.Lshortfile)
-)
-
-func Info(v ...interface{}) {
-    InfoLogger.Println(v...)
+func init() {
+    log.Out = os.Stdout
+    log.SetFormatter(&logrus.JSONFormatter{})
 }
 
-func Warn(v ...interface{}) {
-    WarnLogger.Println(v...)
+func Info(message string, fields map[string]interface{}) {
+    log.WithFields(fields).Info(message)
 }
 
-func Error(v ...interface{}) {
-    ErrorLogger.Println(v...)
+func Warn(message string, fields map[string]interface{}) {
+    log.WithFields(fields).Warn(message)
 }
 
-func Success(v ...interface{}) {
-    SuccessLogger.Println(v...)
+func Error(message string, fields map[string]interface{}) {
+    log.WithFields(fields).Error(message)
+}
+
+func Success(message string, fields map[string]interface{}) {
+    log.WithFields(fields).Info(message) // Vous pouvez créer un niveau personnalisé si nécessaire
 }
 
 func Startup() {
-
-banner := `
+    banner := `
   ____ _____           ____ ___  _   _ ____  _   _ __  __ _____ ____  
  |  _ \_   _|         / ___/ _ \| \ | / ___|| | | |  \/  | ____|  _ \ 
  | | | || |   _____  | |  | | | |  \| \___ \| | | | |\/| |  _| | |_) |
@@ -47,6 +38,6 @@ banner := `
  |____/ |_|           \____\___/|_| \_|____/ \___/|_|  |_|_____|_| \_\
                                                                                                                                         
 `
-fmt.Println(Green + banner + Reset)
-InfoLogger.Println("Brevo application starting...")
+    Info("Application starting...", map[string]interface{}{"app": "Data team consumer"})
+    fmt.Println(banner)
 }

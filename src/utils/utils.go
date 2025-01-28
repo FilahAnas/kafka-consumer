@@ -12,7 +12,6 @@ func StreamMessageToGCS(gcsBucket string, appname string, message kafka.Message)
     ctx := context.Background()
     client, err := storage.NewClient(ctx)
     if err != nil {
-        Error("Failed to create GCS client:", err)
         return fmt.Errorf("failed to create GCS client: %v", err)
     }
     defer client.Close()
@@ -24,7 +23,6 @@ func StreamMessageToGCS(gcsBucket string, appname string, message kafka.Message)
 
     var msgData map[string]interface{}
     if err := json.Unmarshal(message.Value, &msgData); err != nil {
-        Error("Failed to unmarshal message value:", err)
         return err
     }
     currentTime := time.Now().UTC()
@@ -37,18 +35,15 @@ func StreamMessageToGCS(gcsBucket string, appname string, message kafka.Message)
         "extracted_at": msgData["datetime"],
     })
     if err != nil {
-        Error("Failed to marshal message:", err)
         return fmt.Errorf("failed to marshal message: %v", err)
     }
 
     if _, err := writer.Write(jsonMessage); err != nil {
-        Error("Failed to write message to GCS:", err)
         return fmt.Errorf("failed to write message to GCS: %v", err)
     }
     _, _ = writer.Write([]byte("\n"))
 
     if err := writer.Close(); err != nil {
-        Error("Failed to close GCS writer:", err)
         return fmt.Errorf("failed to close GCS writer: %v", err)
     }
     return nil

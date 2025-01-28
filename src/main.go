@@ -77,22 +77,26 @@ func processMessage(ctx context.Context, messages []kafka.Message) error {
 			defer wg.Done()
 			if len(msg.Value) > 0 {
 				if err := utils.StreamMessageToGCS(gcsBucket, appname, msg); err != nil {
-					log.Printf("Failed to stream message to GCS: %v", err)
+					utils.Error("Failed to stream message to GCS", map[string]interface{}{
+						"error":  err,
+					})	
 					errorCount++
 				} else {
 					successCount++
 				}
 			} else {
-				utils.Warn("Empty message received, skipping...")
+				utils.Warn("Empty message received, skipping...", nil)
 			}
 		}(message)
 	}
 
 	wg.Wait()
-	utils.Info("Processed messages successfully:", successCount, "/", len(messages))
-	if errorCount > 0 {
-		log.Printf("Failed to process %d messages", errorCount)
-	}
+
+	utils.Info("Processed messages successfully", map[string]interface{}{
+		"successCount":   successCount,
+		"totalMessages": len(messages),
+	})	
+
 	return nil
 }
 

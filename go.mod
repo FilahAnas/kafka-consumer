@@ -3,6 +3,12 @@ module go-kafka-consumer
 go 1.23
 
 require (
+	cloud.google.com/go/storage v1.50.0
+	github.com/segmentio/kafka-go v0.4.47
+	github.com/sirupsen/logrus v1.9.0
+)
+
+require (
 	cel.dev/expr v0.16.1 // indirect
 	cloud.google.com/go v0.116.0 // indirect
 	cloud.google.com/go/auth v0.13.0 // indirect
@@ -11,7 +17,6 @@ require (
 	cloud.google.com/go/compute/metadata v0.6.0 // indirect
 	cloud.google.com/go/iam v1.2.2 // indirect
 	cloud.google.com/go/monitoring v1.21.2 // indirect
-	cloud.google.com/go/storage v1.50.0 // indirect
 	github.com/DTSL/golang-libraries v1.241.1 // indirect
 	github.com/DataDog/datadog-agent/pkg/obfuscate v0.44.1 // indirect
 	github.com/DataDog/datadog-go/v5 v5.2.0 // indirect
@@ -49,7 +54,6 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
-	github.com/segmentio/kafka-go v0.4.47 // indirect
 	github.com/tinylib/msgp v1.1.8 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	go.opencensus.io v0.24.0 // indirect
