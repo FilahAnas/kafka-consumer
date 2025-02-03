@@ -1,0 +1,16 @@
+$patch: merge
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config
+data:
+  PROJECT_ID: root-station-198710-staging
+  BROKER_ADDRESS: localhost:9092
+  TOPIC: brevo-topic
+  APP_NAME: app-center-enable-disable
+  GROUP_ID: group-1
+  GCS_BUCKET: sib-kafka-consumer
+  BQ_DATASET: dbt_sandbox_AnasF
+  BQ_TABLE: kafka_app_center_enable_disable
+  BATCH_SIZE: 2
+  TIMEOUT: 5

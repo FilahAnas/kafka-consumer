@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: kafka-consumer
+
+labels:
+  - pairs:
+      app: kafka-consumer
+    includeSelectors: true
+
+resources:
+  - secret.yaml
+  - deployment.yaml
+
+commonAnnotations:
+  owner: data
+  app: data-kafka-consumer
+  ad.datadoghq.com/tags: '{"owner": "data", "team": "data.plaform.ops", "app": "data-kafka-consumer"}'
+
+components:
+  - ../../../deploy/components/base
+  - ../../../deploy/components/google-sa-auth
+
+patches:
+  - path: configmap.yaml

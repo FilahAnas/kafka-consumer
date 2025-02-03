@@ -1,0 +1,20 @@
+{
+    "source": {
+        "topic": "brevo-topic",
+        "brokerAddress": "localhost:9092",
+        "groupId": "group-1"
+    },
+    "transform": {
+        "batchSize": 2,
+        "timeout": 5
+    },
+    "destination": {
+        "bigquery": {
+            "gcsBucket": "sib-kafka-consumer",
+            "bqDataset": "dbt_sandbox_AnasF",
+            "bqTable": "kafka_app_center_enable_disable",
+            "projectId": "root-station-198710-staging",
+            "appName": "app-center-enable-disable"
+        }
+    }
+}

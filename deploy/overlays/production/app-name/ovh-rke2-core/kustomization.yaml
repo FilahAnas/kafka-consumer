@@ -1,0 +1,43 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: app-name
+resources:
+  - ../../../../base
+labels:
+  - pairs:
+      module: app-name
+    includeSelectors: true
+patches:
+  - path: configmap.yaml
+  - path: secret.yaml
+  - target:
+      kind: Deployment
+      name: kafka-consumer
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests
+        value:
+          memory: '75Mi'
+          cpu: 100m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits
+        value:
+          memory: '150Mi'
+          cpu: 200m
+images:
+  - name: gcr.io/data/kafka-consumer
+    newName: gcr.io/platform-production-200812/data/kafka-consumer
+    newTag: 1.4.1
+replacements:
+  - source:
+      kind: Namespace
+      fieldPath: metadata.labels.module
+    targets:
+      - select:
+          kind: ConfigMap
+          name: config
+        fieldPaths:
+          - data.SENTRY_NAME
+replicas:
+  - name: kafka-consumer
+    count: 0

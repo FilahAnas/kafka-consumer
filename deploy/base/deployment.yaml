@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-consumer
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: kafka-consumer
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    spec:
+      containers:
+        - name: backend
+          env:
+            - name: PYTHONUNBUFFERED
+              value: '1'
+            - name: GOOGLE_APPLICATION_CREDENTIALS_JSON
+              valueFrom:
+                secretKeyRef:
+                  key: GOOGLE_APPLICATION_CREDENTIALS
+                  name: secret
+          envFrom:
+            - configMapRef:
+                name: config
+          image: gcr.io/data/kafka-consumer:0.0.1
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 384Mi
+            requests:
+              cpu: 20m
+              memory: 128Mi
+          volumeMounts: []
+      dnsPolicy: ClusterFirst
+      terminationGracePeriodSeconds: 120
+      volumes: []
